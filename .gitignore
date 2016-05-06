@@ -1,3 +1,5 @@
 *.iml
 .idea/
 target/
+derby.log
+metastore_db/
