@@ -14,8 +14,8 @@ brew install sbt apache-spark
 
 ## Run
 ```
-sbt package
-spark-submit ./target/scala-2.10/simple-spark-project_2.10-1.0.jar "path/to/dataset_dir"
+sbt assembly
+spark-submit ./build/movie-lens-als-assembly-1.0.jar "path/to/dataset_dir"
 
 # ... 
 # (numRatings,100000)
