@@ -5,7 +5,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkContext, SparkConf}
 import org.apache.spark.mllib.recommendation.Rating
 
-object SimpleSparkApp {
+object MovieLensALS {
   def main(args: Array[String]) = {
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
 
@@ -27,16 +27,37 @@ object SimpleSparkApp {
     val movies = loadMovies(sc, movieLensHomeDir)
 
     // logic here
-    val numRatings = ratings.count
-    println("numRatings", numRatings)
+    val (training, validation, test) = train(ratings, myRatingsRDD)
 
-    val numUsers = ratings.map(_._2.user).distinct.count
-    println("numUsers", numUsers)
-
-    val numMovies = ratings.map(_._2.product).distinct.count
-    println("numMovies", numMovies)
+    val numTraining = training.count()
+    val numValidation = validation.count()
+    val numTest = test.count()
+    println("Training: " + numTraining + ", validation: " + numValidation + ", test: " + numTest)
 
     sc.stop()
+  }
+
+  def train(ratings: RDD[(Long, Rating)], myRatings: RDD[Rating]): (RDD[Rating], RDD[Rating], RDD[Rating]) = {
+    val numPartitions = 4
+    val training = ratings
+      .filter(x => x._1 < 6)
+      .values
+      .union(myRatings)
+      .repartition(numPartitions)
+      .cache()
+
+    val validation = ratings
+      .filter(x => x._1 >= 6 && x._1 < 8)
+      .values
+      .repartition(numPartitions)
+      .cache()
+
+    val test = ratings
+      .filter(x => x._1 >= 8)
+      .values
+      .cache()
+
+    (training, validation, test)
   }
 
   def loadMyRatings: Seq[Rating] = {
