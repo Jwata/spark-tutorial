@@ -15,7 +15,7 @@ brew install sbt apache-spark
 ## Run
 ```
 sbt assembly
-spark-submit ./build/movie-lens-als-assembly-1.0.jar "path/to/dataset_dir"
+spark-submit --driver-memory 2G ./build/movie-lens-als-assembly-1.0.jar "path/to/dataset_dir"
 
 ```
 ```

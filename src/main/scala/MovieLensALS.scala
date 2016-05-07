@@ -8,6 +8,7 @@ import org.apache.spark.mllib.recommendation.{MatrixFactorizationModel, ALS, Rat
 object MovieLensALS {
   def main(args: Array[String]) = {
     Logger.getLogger("org.apache.spark").setLevel(Level.WARN)
+    Logger.getLogger("application").setLevel(Level.INFO)
 
     if (args.length != 1) {
       println("Invalid args!!")
@@ -17,7 +18,7 @@ object MovieLensALS {
 
     val conf = new SparkConf()
       .setAppName("SimpleSparkApp")
-      .set("spark.executor.memory", "3g")
+      .set("spark.executor.memory", "2g")
     val sc = new SparkContext(conf)
 
     val myRatings = loadMyRatings
@@ -31,21 +32,21 @@ object MovieLensALS {
     val (model, rank, iterations, lambda) = train(training, validation)
 
     // test
-    val testRmse = computeRmse(model, test, test.count)
-    println("The best model was trained with rank = " + rank + ", and numIter = " + iterations
-      + ", and lambda = " + lambda + ", and its RMSE on the test set is " + testRmse + ".")
+    val testRmse = time("Computing RMSE for test ...") { computeRmse(model, test, test.count) }
+    Logger.getLogger("application").info("The best model was trained with rank = " + rank + ", and numIter = "
+      + iterations + ", and lambda = " + lambda + ", and its RMSE on the test set is " + testRmse + ".")
 
     // compare to a naive baseline
     val meanRating = training.map(r => r.rating).mean
     val baseLineRmse = math.sqrt(test.map(r => (r.rating - meanRating) * (r.rating - meanRating)).mean)
-    println("The baseline RMSE is " + baseLineRmse)
+    Logger.getLogger("application").info("The baseline RMSE is " + baseLineRmse)
     val improvement = (baseLineRmse - testRmse) / baseLineRmse * 100
-    println("The best model improves the baseline by " + "%1.2f".format(improvement) + "%.")
+    Logger.getLogger("application").info("The best model improves the baseline by " + "%1.2f".format(improvement) + "%.")
 
     // recommend
-    val recommendations = model.recommendProducts(user = 0, num = 10)
+    val recommendations = time("Getting recommendations ...") { model.recommendProducts(user = 0, num = 10) }
     recommendations.foreach(r =>
-      println(movies(r.product), r.rating)
+      Logger.getLogger("application").info(movies(r.product) + r.rating)
     )
 
     sc.stop()
@@ -63,14 +64,18 @@ object MovieLensALS {
     var bestLambda = -1.0
 
     for (r <- ranks; i <- iterations; l <- lambdas) {
-      val model = new ALS()
-        .setRank(r)
-        .setLambda(l)
-        .setIterations(i)
-        .run(training)
-      val validationRmse = computeRmse(model, validation, validation.count)
-      println("RMSE (validation) = " + validationRmse + " for the model trained with rank = " + r
-        + ", and numIter = " + i + ", and lambda = " + l + ".")
+      val model = time("Training model ...") {
+        new ALS()
+          .setRank(r)
+          .setLambda(l)
+          .setIterations(i)
+          .run(training)
+      }
+      val validationRmse = time ("Computing RMSE for validation ...") {
+        computeRmse(model, validation, validation.count)
+      }
+      Logger.getLogger("application").info("RMSE (validation) = " + validationRmse + " for the model trained with rank = "
+        + r + ", and numIter = " + i + ", and lambda = " + l + ".")
       if (validationRmse < bestValidationRmse) {
         bestModel = Some(model)
         bestValidationRmse = validationRmse
@@ -125,17 +130,29 @@ object MovieLensALS {
 
   def loadRatings(sc: SparkContext, dir: String): RDD[(Long, Rating)] = {
     val path = dir + "/ratings.dat"
-    sc.textFile(path).map { line =>
-      val fields = line.split("::")
-      (fields(3).toLong % 10, Rating(fields(0).toInt, fields(1).toInt, fields(2).toDouble))
+    time("Loading ratings file ...") {
+      sc.textFile(path).map { line =>
+        val fields = line.split("::")
+        (fields(3).toLong % 10, Rating(fields(0).toInt, fields(1).toInt, fields(2).toDouble))
+      }
     }
   }
 
   def loadMovies(sc: SparkContext, dir: String): Map[Int, String] = {
     val path = dir + "/movies.dat"
-    sc.textFile(path).map { line =>
-      val fields = line.split("::")
-      (fields(0).toInt, fields(1))
-    }.collect().toMap
+    time("Loading movies file...") {
+      sc.textFile(path).map { line =>
+        val fields = line.split("::")
+        (fields(0).toInt, fields(1))
+      }.collect().toMap
+    }
+  }
+
+  def time[R](message: String)(block: => R) = {
+    val start = System.currentTimeMillis()
+    val result = block
+    val end = System.currentTimeMillis()
+    Logger.getLogger("application").debug(message + " Elapsed Time: %d ms".format(end - start))
+    result
   }
 }
