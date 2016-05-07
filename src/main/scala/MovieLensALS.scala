@@ -3,7 +3,7 @@ import org.apache.log4j.Level
 import org.apache.spark.rdd.RDD
 
 import org.apache.spark.{SparkContext, SparkConf}
-import org.apache.spark.mllib.recommendation.Rating
+import org.apache.spark.mllib.recommendation.{MatrixFactorizationModel, ALS, Rating}
 
 object MovieLensALS {
   def main(args: Array[String]) = {
@@ -27,17 +27,49 @@ object MovieLensALS {
     val movies = loadMovies(sc, movieLensHomeDir)
 
     // logic here
-    val (training, validation, test) = train(ratings, myRatingsRDD)
-
-    val numTraining = training.count()
-    val numValidation = validation.count()
-    val numTest = test.count()
-    println("Training: " + numTraining + ", validation: " + numValidation + ", test: " + numTest)
+    val (training, validation, test) = splitRatings(ratings, myRatingsRDD)
+    train(training, validation, test)
 
     sc.stop()
   }
 
-  def train(ratings: RDD[(Long, Rating)], myRatings: RDD[Rating]): (RDD[Rating], RDD[Rating], RDD[Rating]) = {
+  def train(training: RDD[Rating], validation: RDD[Rating], test: RDD[Rating]): Unit = {
+    val ranks = List(8, 12)
+    val iterations = List(10, 20)
+
+    var bestModel: Option[MatrixFactorizationModel] = None
+    var bestValidationRmse = Double.MaxValue
+    var bestRank = 0
+    var bestNumIter = -1
+
+    for (r <- ranks; i <- iterations) {
+      val model = ALS.train(training, r, i)
+      val validationRmse = computeRmse(model, validation, validation.count)
+      println("RMSE (validation) = " + validationRmse + " for the model trained with rank = " + r + ", and numIter = " + i + ".")
+      if (validationRmse < bestValidationRmse) {
+        bestModel = Some(model)
+        bestValidationRmse = validationRmse
+        bestRank = r
+        bestNumIter = i
+      }
+    }
+
+    val testRmse = computeRmse(bestModel.get, test, test.count)
+    println("The best model was trained with rank = " + bestRank + ", and numIter = " + bestNumIter + ", and its RMSE on the test set is " + testRmse + ".")
+
+  }
+
+  def computeRmse(model: MatrixFactorizationModel, data: RDD[Rating], n: Long): Double = {
+    val predictions = model.predict(data.map { d => (d.user, d.product) })
+    val predictAndRatingPairs = predictions.map { p =>
+      ((p.user, p.product), p.rating)
+    }.join(data.map { d =>
+      ((d.user, d.product), d.rating)
+    }).values
+    math.sqrt(predictAndRatingPairs.map(x => (x._1 - x._2) * (x._1 - x._2)).mean)
+  }
+
+  def splitRatings(ratings: RDD[(Long, Rating)], myRatings: RDD[Rating]): (RDD[Rating], RDD[Rating], RDD[Rating]) = {
     val numPartitions = 4
     val training = ratings
       .filter(x => x._1 < 6)
