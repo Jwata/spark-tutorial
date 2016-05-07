@@ -28,11 +28,12 @@ object MovieLensALS {
 
     // train
     val (training, validation, test) = splitRatings(ratings, myRatingsRDD)
-    val (model, rank, iterations) = train(training, validation)
+    val (model, rank, iterations, lambda) = train(training, validation)
 
     // test
     val testRmse = computeRmse(model, test, test.count)
-    println("The best model was trained with rank = " + rank + ", and numIter = " + iterations + ", and its RMSE on the test set is " + testRmse + ".")
+    println("The best model was trained with rank = " + rank + ", and numIter = " + iterations
+      + ", and lambda = " + lambda + ", and its RMSE on the test set is " + testRmse + ".")
 
     // compare to a naive baseline
     val meanRating = training.map(r => r.rating).mean
@@ -50,28 +51,36 @@ object MovieLensALS {
     sc.stop()
   }
 
-  def train(training: RDD[Rating], validation: RDD[Rating]): (MatrixFactorizationModel, Int, Int) = {
+  def train(training: RDD[Rating], validation: RDD[Rating]): (MatrixFactorizationModel, Int, Int, Double) = {
     val ranks = List(8, 12)
     val iterations = List(10, 20)
+    val lambdas = List(0.001, 0.01, 0.1)
 
     var bestModel: Option[MatrixFactorizationModel] = None
     var bestValidationRmse = Double.MaxValue
     var bestRank = 0
     var bestNumIter = -1
+    var bestLambda = -1.0
 
-    for (r <- ranks; i <- iterations) {
-      val model = ALS.train(training, r, i)
+    for (r <- ranks; i <- iterations; l <- lambdas) {
+      val model = new ALS()
+        .setRank(r)
+        .setLambda(l)
+        .setIterations(i)
+        .run(training)
       val validationRmse = computeRmse(model, validation, validation.count)
-      println("RMSE (validation) = " + validationRmse + " for the model trained with rank = " + r + ", and numIter = " + i + ".")
+      println("RMSE (validation) = " + validationRmse + " for the model trained with rank = " + r
+        + ", and numIter = " + i + ", and lambda = " + l + ".")
       if (validationRmse < bestValidationRmse) {
         bestModel = Some(model)
         bestValidationRmse = validationRmse
         bestRank = r
         bestNumIter = i
+        bestLambda = l
       }
     }
 
-    return (bestModel.get, bestRank, bestNumIter)
+    return (bestModel.get, bestRank, bestNumIter, bestLambda)
   }
 
   def computeRmse(model: MatrixFactorizationModel, data: RDD[Rating], n: Long): Double = {
