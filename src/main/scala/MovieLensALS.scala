@@ -115,17 +115,17 @@ object MovieLensALS {
   }
 
   def loadRatings(sc: SparkContext, dir: String): RDD[(Long, Rating)] = {
-    val path = dir + "/u.data"
+    val path = dir + "/ratings.dat"
     sc.textFile(path).map { line =>
-      val fields = line.split("\t")
+      val fields = line.split("::")
       (fields(3).toLong % 10, Rating(fields(0).toInt, fields(1).toInt, fields(2).toDouble))
     }
   }
 
   def loadMovies(sc: SparkContext, dir: String): Map[Int, String] = {
-    val path = dir + "/u.item"
+    val path = dir + "/movies.dat"
     sc.textFile(path).map { line =>
-      val fields = line.split("\\|")
+      val fields = line.split("::")
       (fields(0).toInt, fields(1))
     }.collect().toMap
   }
