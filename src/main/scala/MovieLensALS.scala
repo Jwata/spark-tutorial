@@ -26,11 +26,22 @@ object MovieLensALS {
     val ratings = loadRatings(sc, movieLensHomeDir)
     val movies = loadMovies(sc, movieLensHomeDir)
 
-    // logic here
+    // train
     val (training, validation, test) = splitRatings(ratings, myRatingsRDD)
-    val model = train(training, validation, test)
+    val (model, rank, iterations) = train(training, validation)
 
-    // get recommendations
+    // test
+    val testRmse = computeRmse(model, test, test.count)
+    println("The best model was trained with rank = " + rank + ", and numIter = " + iterations + ", and its RMSE on the test set is " + testRmse + ".")
+
+    // compare to a naive baseline
+    val meanRating = training.map(r => r.rating).mean
+    val baseLineRmse = math.sqrt(test.map(r => (r.rating - meanRating) * (r.rating - meanRating)).mean)
+    println("The baseline RMSE is " + baseLineRmse)
+    val improvement = (baseLineRmse - testRmse) / baseLineRmse * 100
+    println("The best model improves the baseline by " + "%1.2f".format(improvement) + "%.")
+
+    // recommend
     val recommendations = model.recommendProducts(user = 0, num = 10)
     recommendations.foreach(r =>
       println(movies(r.product), r.rating)
@@ -39,7 +50,7 @@ object MovieLensALS {
     sc.stop()
   }
 
-  def train(training: RDD[Rating], validation: RDD[Rating], test: RDD[Rating]): MatrixFactorizationModel = {
+  def train(training: RDD[Rating], validation: RDD[Rating]): (MatrixFactorizationModel, Int, Int) = {
     val ranks = List(8, 12)
     val iterations = List(10, 20)
 
@@ -60,10 +71,7 @@ object MovieLensALS {
       }
     }
 
-    val testRmse = computeRmse(bestModel.get, test, test.count)
-    println("The best model was trained with rank = " + bestRank + ", and numIter = " + bestNumIter + ", and its RMSE on the test set is " + testRmse + ".")
-
-    return bestModel.get
+    return (bestModel.get, bestRank, bestNumIter)
   }
 
   def computeRmse(model: MatrixFactorizationModel, data: RDD[Rating], n: Long): Double = {
