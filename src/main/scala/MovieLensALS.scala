@@ -17,7 +17,7 @@ object MovieLensALS {
 
     val conf = new SparkConf()
       .setAppName("SimpleSparkApp")
-      .set("spark.executor.memory", "2g")
+      .set("spark.executor.memory", "3g")
     val sc = new SparkContext(conf)
 
     val myRatings = loadMyRatings
@@ -28,12 +28,18 @@ object MovieLensALS {
 
     // logic here
     val (training, validation, test) = splitRatings(ratings, myRatingsRDD)
-    train(training, validation, test)
+    val model = train(training, validation, test)
+
+    // get recommendations
+    val recommendations = model.recommendProducts(user = 0, num = 10)
+    recommendations.foreach(r =>
+      println(movies(r.product), r.rating)
+    )
 
     sc.stop()
   }
 
-  def train(training: RDD[Rating], validation: RDD[Rating], test: RDD[Rating]): Unit = {
+  def train(training: RDD[Rating], validation: RDD[Rating], test: RDD[Rating]): MatrixFactorizationModel = {
     val ranks = List(8, 12)
     val iterations = List(10, 20)
 
@@ -57,6 +63,7 @@ object MovieLensALS {
     val testRmse = computeRmse(bestModel.get, test, test.count)
     println("The best model was trained with rank = " + bestRank + ", and numIter = " + bestNumIter + ", and its RMSE on the test set is " + testRmse + ".")
 
+    return bestModel.get
   }
 
   def computeRmse(model: MatrixFactorizationModel, data: RDD[Rating], n: Long): Double = {
